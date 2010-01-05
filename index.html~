@@ -1,11 +1,11 @@
 <html>
 <head>
-<title>Learning WebGL &mdash; lesson 5</title>
+<title>falling sand gpgpu</title>
 <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
 
 <link type="text/css" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.2/themes/ui-lightness/jquery-ui.css" rel="stylesheet"/>
-<script type="text/javascript" src="http://learningwebgl.com/lessons/lesson05/sylvester.js"></script>
-<script type="text/javascript" src="http://learningwebgl.com/lessons/lesson05/glUtils.js"></script>
+<script type="text/javascript" src="/static/sylvester.js"></script>
+<script type="text/javascript" src="/static/glUtils.js"></script>
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.js"></script>
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.2/jquery-ui.js"></script>
 
@@ -827,7 +827,7 @@ canvas.mousemove();
   }
 
  $(document).ready(function(){
-    $(".blueWater").click(function(){ alert('hi'); penColor = [0.0, 0.0, 1.0, 1.0] });
+    $(".blueWater").click(function(){ penColor = [0.0, 0.0, 1.0, 1.0] });
     $(".blackLiquid").click(function(){ penColor = [0.0, 0.0, 0.0, 1.0] })
     $(".fire").click(function(){ penColor = [1.0, 0.0, 0.0, 1.0]})
     $(".wall").click(function(){penColor = [0.55, 0.55, 0.55, 1.0] })
@@ -835,6 +835,22 @@ canvas.mousemove();
     $(".white").click(function(){ penColor = [1.0, 1.0, 1.0, 1.0]})
     $(".plant").click(function(){ penColor = [0.0, 1.0, 0.0, 1.0]})
     $("#penSizeSlider").slider({orientation: 'vertical', max : 10, min: 1});
+
+
+    var width = gup('width');
+    var height = gup('height');
+    if((!width || !height)){
+        width = 500;
+        height = 500;
+    }
+    
+
+    $("body").prepend("<canvas id='canvas' width='" + width + "' height='" + height + "'></canvas>");
+    
+    canvasWidth = width;
+    canvasHeight = height;
+    webGLStart();
+  
 
   });
 
@@ -852,13 +868,23 @@ canvas.mousemove();
     ctx.putImageData(imgData, 0, 0);
     return randomCanvas;
   }
-		  
 
+function gup( name )
+{
+  name = name.replace(/[\[]/,"\\\[").replace(/[\]]/,"\\\]");
+  var regexS = "[\\?&]"+name+"=([^&#]*)";
+  var regex = new RegExp( regexS );
+  var results = regex.exec( window.location.href );
+  if( results == null )
+    return null;
+  else
+    return results[1];
+}
 </script>
 
 <style>
   #canvas{float:left; border: 1px solid black;}
-  .colorSelection{height: 50px; border: 2px solid black; position:absolute; bottom: 0%;}
+  .colorSelection{height: 52px; border: 2px solid black; position:absolute; bottom: 5px;}
   .colorSelection div { height: 50px; float: left; border: 1px solid black;  width: 50px; color:white; text-align:center}
   .blueWater {background-color:blue;}
   .blackLiquid {background-color:black;}
@@ -868,18 +894,32 @@ canvas.mousemove();
   .plant {background-color:green;}
   .sandBrown {background-color:brown;}
 
-  #penSizeSliderContainer{float:left; position:relative; height: 50%; top:40%;   border: 1px solid black;}
-  #penSizeSlider{height: 100%;}
+  #penSizeSliderContainer{margin: 8px; float:left; position:relative; height: 50%; top:0%;    }
+  #penSizeSlider{height: 100%; margin-left: auto; margin-right:auto;}
+  #penSizeSliderBottom{ }
+  #penSizeSliderTop{position:relative; margin-left: auto; margin-right:auto; text-align:center;  }
+  #canvasSizeSelect{ font-size: small; position:absolute; bottom: 63px;}
 
-
+  
 </style>
 </head>
 
 
-<body onload="webGLStart()">
+<body>
 
-  <canvas id="canvas"  width="600" height="600"></canvas><br/>
-  <div id="penSizeSliderContainer"><div id="penSizeSlider"></div></div><br/>
+  <br/>
+  <div id="penSizeSliderContainer">
+    <div id="penSizeSliderTop">+</div>
+    <div id="penSizeSlider"></div><br/>
+    <div id="penSizeSliderBottom">Brush Size</div>
+  </div><br/>
+  <div id="canvasSizeSelect">
+    <a  href="index.html?width=200&height=200">small</a>
+    <a  href="index.html?width=500&height=500">medium</a>
+    <a  href="index.html?width=800&height=800">big</a>
+    <a  href="index.html?width=1024&height=1024">super</a>
+  </div> 
+  
   <div class="colorSelection">
       <div class="blueWater">Water</div> 
       <div class="blackLiquid">Black Liquid</div> 
@@ -892,5 +932,4 @@ canvas.mousemove();
 
 
 </body>
-
 </html>

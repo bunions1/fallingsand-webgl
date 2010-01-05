@@ -4,8 +4,8 @@
 <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
 
 <link type="text/css" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.2/themes/ui-lightness/jquery-ui.css" rel="stylesheet"/>
-<script type="text/javascript" src="http://learningwebgl.com/lessons/lesson05/sylvester.js"></script>
-<script type="text/javascript" src="http://learningwebgl.com/lessons/lesson05/glUtils.js"></script>
+<script type="text/javascript" src="/static/sylvester.js"></script>
+<script type="text/javascript" src="/static/glUtils.js"></script>
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.js"></script>
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.2/jquery-ui.js"></script>
 
@@ -292,6 +292,13 @@
     }
     if (!gl)
     {
+
+
+      $("body").html("\
+            <span>WebGL is required, below are instructinons to enable WebGL for Safari and Firefox</span><br/>\
+            <a href='http://webkit.org/blog/603/webgl-now-available-in-webkit-nightlies/'>webkit WebGL instructions</a><br/>\
+            <a href='http://learningwebgl.com/blog/?p=11#install-firefox'>webkit WebGL instructions</a>");
+      throw "no WebGL";
       alert("Could not initialise WebGL, sorry :-(");
     }
 
@@ -632,8 +639,8 @@
 
   globalRenderBufferId = gl.createRenderbuffer();
   gl.bindRenderbuffer(gl.RENDERBUFFER, globalRenderBufferId);
-  alert(gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight));
-  alert(gl.isRenderbuffer(globalRenderBufferId));
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight);
+  gl.isRenderbuffer(globalRenderBufferId);
   gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
 
@@ -646,8 +653,8 @@
 
   globalRenderBufferId2 = gl.createRenderbuffer();
   gl.bindRenderbuffer(gl.RENDERBUFFER, globalRenderBufferId2);
-  alert(gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight));
-  alert(gl.isRenderbuffer(globalRenderBufferId2));
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight);
+  gl.isRenderbuffer(globalRenderBufferId2);
   gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
 
@@ -839,13 +846,13 @@ canvas.mousemove();
 
     var width = gup('width');
     var height = gup('height');
-    if(!(width || height)){
+    if((!width || !height)){
         width = 500;
         height = 500;
     }
     
 
-    $("body").prepend("<canvas id='canvas' width='" + gup("width")+ "' height='" + gup("height") + "'></canvas>");
+    $("body").prepend("<canvas id='canvas' width='" + width + "' height='" + height + "'></canvas>");
     
     canvasWidth = width;
     canvasHeight = height;
@@ -930,6 +937,6 @@ function gup( name )
       <div class="sandBrown">Oil</div> 
   </div>
 
-
+<span style="font-size:x-small; position:absolute; bottom:0px; left: 400px"><a href="mailto:aaron.babcock@gmail.com">aaron.babcock@gmail.com</a></span>
 </body>
 </html>
