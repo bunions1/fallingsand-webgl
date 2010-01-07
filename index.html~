@@ -292,6 +292,13 @@
     }
     if (!gl)
     {
+
+
+      $("body").html("\
+            <span>WebGL is required, below are instructinons to enable WebGL for Safari and Firefox</span><br/>\
+            <a href='http://webkit.org/blog/603/webgl-now-available-in-webkit-nightlies/'>webkit WebGL instructions</a><br/>\
+            <a href='http://learningwebgl.com/blog/?p=11#install-firefox'>webkit WebGL instructions</a>");
+      throw "no WebGL";
       alert("Could not initialise WebGL, sorry :-(");
     }
 
@@ -632,8 +639,8 @@
 
   globalRenderBufferId = gl.createRenderbuffer();
   gl.bindRenderbuffer(gl.RENDERBUFFER, globalRenderBufferId);
-  alert(gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight));
-  alert(gl.isRenderbuffer(globalRenderBufferId));
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight);
+  gl.isRenderbuffer(globalRenderBufferId);
   gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
 
@@ -646,8 +653,8 @@
 
   globalRenderBufferId2 = gl.createRenderbuffer();
   gl.bindRenderbuffer(gl.RENDERBUFFER, globalRenderBufferId2);
-  alert(gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight));
-  alert(gl.isRenderbuffer(globalRenderBufferId2));
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT, canvasWidth, canvasHeight);
+  gl.isRenderbuffer(globalRenderBufferId2);
   gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
 
@@ -930,6 +937,6 @@ function gup( name )
       <div class="sandBrown">Oil</div> 
   </div>
 
-
+<span style="font-size:x-small; position:absolute; bottom:0px; left: 400px"><a href="mailto:aaron.babcock@gmail.com">aaron.babcock@gmail.com</a></span>
 </body>
 </html>
