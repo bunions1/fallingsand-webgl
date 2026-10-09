@@ -973,10 +973,13 @@
   var holdFrames = 0;
   var stepCount = 0;  // sim steps the GPU has finished
   var frameCount = 0; // new images drawn to the screen
+  var refreshCount = 0; // browser refreshes, whether or not we drew
+  var cappedReadings = 0;
   var fpsStart = performance.now();
 
   function frame(now)
   {
+     refreshCount++;
      if (holdFrames > 0)
        holdFrames--;
 
@@ -1031,8 +1034,13 @@
      {
        var seconds = (now - fpsStart) / 1000;
        $("#fps").text(Math.round(stepCount / seconds) + " steps/s  " + Math.round(frameCount / seconds) + " fps  (" + stepsPerFrame + " steps/frame)");
+       // energy savers (e.g. Chrome on battery) hold pages to about 30 refreshes a second
+       cappedReadings = (refreshCount / seconds < 33) ? cappedReadings + 1 : 0;
+       refreshCapped = cappedReadings >= 4;
+       updatePowerNotice();
        stepCount = 0;
        frameCount = 0;
+       refreshCount = 0;
        fpsStart = now;
      }
      requestAnimationFrame(frame);
@@ -1092,6 +1100,23 @@
     $("#materials button").eq(i).addClass("selected");
   }
 
+  // suggest plugging in when the laptop is on battery or the browser is capping the frame rate
+  var onBattery = false;
+  var refreshCapped = false;
+  var powerNoticeDismissed = false;
+  function updatePowerNotice()
+  {
+    $("#powerNotice").toggle((onBattery || refreshCapped) && !powerNoticeDismissed);
+  }
+  if (navigator.getBattery)
+  {
+    navigator.getBattery().then(function(battery){
+      function check(){ onBattery = !battery.charging; updatePowerNotice(); }
+      battery.addEventListener("chargingchange", check);
+      check();
+    }).catch(function(){});
+  }
+
   function setPaused(p)
   {
     paused = p;
@@ -1110,6 +1135,7 @@
     selectMaterial(0);
 
     $("#pause").click(function(){ setPaused(!paused); });
+    $("#powerNotice button").click(function(){ powerNoticeDismissed = true; updatePowerNotice(); });
     $("#sprinklers").click(function(){ sprinklersOn = this.checked; });
     $(document).keydown(function(e){
       if (e.target.tagName == "INPUT") return;
@@ -1200,6 +1226,8 @@ function gup( name )
   #brushSize { width: 90px; }
   #sizes a { color: var(--accent); text-decoration: none; margin-left: 4px; }
   #fps { margin-left: auto; font: 12px monospace; color: var(--muted); white-space: nowrap; }
+  #powerNotice { padding: 4px 8px; border-radius: 6px; background: #fff4d6; border: 1px solid #f0d58a; color: #6b5200; }
+  #powerNotice button { padding: 0 6px; margin-left: 4px; border: none; background: none; font-size: 14px; }
   #credit { font-size: 11px; color: var(--muted); }
   #stage { padding: 8px; display: flex; justify-content: center; }
   #canvas { display: block; border: 1px solid var(--border); cursor: crosshair; touch-action: none; background: #fff; }
@@ -1218,6 +1246,7 @@ function gup( name )
     </div>
     <label class="group"><input type="checkbox" id="sprinklers" checked> Sprinklers</label>
     <span id="sizes">Size:<a href="index.html?width=1920&height=1080">1080p</a><a href="index.html?width=3840&height=2160">4K</a><a href="index.html?width=7680&height=4320">8K</a></span>
+    <span id="powerNotice" style="display:none">On battery? Plug in (or turn off your browser's energy saver) for full speed. <button type="button" title="Dismiss">&times;</button></span>
     <span id="fps"></span>
     <a id="credit" href="mailto:aaron.babcock@gmail.com">aaron.babcock@gmail.com</a>
   </div>
