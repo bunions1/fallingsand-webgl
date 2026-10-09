@@ -24,9 +24,13 @@
   }
 </script>
 
-<script id="shader-fs" type="x-shader/x-fragment">
+<script id="shader-fs" type="x-shader/x-fragment">#version 300 es
+  //Reads use texelFetch (exact integer texel, no derivatives) so the early exits in main can't
+  //disturb neighbouring pixels' reads, which texture2D after a divergent return could
   precision highp float;
-  varying vec2 vTextureCoord;
+  precision highp int;
+  in vec2 vTextureCoord;
+  out vec4 fragColor;
 
   uniform sampler2D src;
   uniform sampler2D rand;
@@ -35,50 +39,77 @@
   uniform float canvasHeight;
   uniform float phase; //0 or 1, alternates each step; picks which rows pair up for density swaps
 
-  //cell dx, dy pixels away from this one
+  //cell dx, dy pixels away from this one; off the edge reads the edge cell (like CLAMP_TO_EDGE)
   vec4 at(float dx, float dy){
-    return texture2D(src, vTextureCoord + vec2(dx / canvasWidth, dy / canvasHeight));
+    ivec2 size = textureSize(src, 0);
+    ivec2 p = clamp(ivec2(gl_FragCoord.xy) + ivec2(int(dx), int(dy)), ivec2(0), size - 1);
+    return texelFetch(src, p, 0);
   }
 
-  //this step's random value for the cell dx, dy pixels away; every pixel sees the same value for a given cell
+  //this step's random value for the cell dx, dy pixels away; every pixel sees the same value for a given cell.
+  //The random texture is sim-sized and wraps (like REPEAT)
   vec4 randAt(float dx, float dy){
-    return texture2D(rand, vTextureCoord + vec2((randomOffset + dx) / canvasWidth, (randomOffset + dy) / canvasHeight));
+    ivec2 size = textureSize(rand, 0);
+    ivec2 p = ivec2(gl_FragCoord.xy) + ivec2(int(randomOffset + dx), int(randomOffset + dy));
+    return texelFetch(rand, (p + size) % size, 0); //p >= -1, so p + size is positive (% is undefined for negatives)
   }
 
-  //materials are identified by colour (alpha is the sideways direction of movable cells)
+  //materials are identified by colour (alpha is the sideways direction of movable cells, or an ember's timer)
   bool near(vec4 c, vec3 k){
     return all(lessThan(abs(c.rgb - k), vec3(0.02)));
   }
   bool isEmpty(vec4 c){ return near(c, vec3(1.0)); }
+  bool isWall(vec4 c){ return near(c, vec3(0.55)); }
   bool isFire(vec4 c){ return near(c, vec3(1.0, 0.0, 0.0)); }
-  bool isBlack(vec4 c){ return near(c, vec3(0.0)); }
+  bool isBlast(vec4 c){ return near(c, vec3(1.0, 1.0, 0.5)); }
+  bool isEmber(vec4 c){ return near(c, vec3(0.6, 0.15, 0.0)); }
   bool isWater(vec4 c){ return near(c, vec3(0.0, 0.0, 1.0)); }
+  bool isSaltWater(vec4 c){ return near(c, vec3(0.25, 0.5, 1.0)); }
   bool isOil(vec4 c){ return near(c, vec3(0.5, 0.25, 0.25)); }
   bool isLava(vec4 c){ return near(c, vec3(1.0, 0.5, 0.0)); }
+  bool isAcid(vec4 c){ return near(c, vec3(0.6, 1.0, 0.0)); }
+  bool isMethane(vec4 c){ return near(c, vec3(0.8, 0.7, 0.9)); }
   bool isSand(vec4 c){ return near(c, vec3(0.86, 0.75, 0.45)); }
+  bool isGunpowder(vec4 c){ return near(c, vec3(0.25, 0.25, 0.3)); }
+  bool isSalt(vec4 c){ return near(c, vec3(0.9, 0.9, 0.85)); }
   bool isPlant(vec4 c){ return near(c, vec3(0.0, 1.0, 0.0)); }
+  bool isStone(vec4 c){ return near(c, vec3(0.35)); }
+  bool isWood(vec4 c){ return near(c, vec3(0.55, 0.35, 0.15)); }
 
   const vec4 EMPTY = vec4(1.0, 1.0, 1.0, 1.0);
   const vec4 FIRE = vec4(1.0, 0.0, 0.0, 1.0);
+  const vec4 BLAST = vec4(1.0, 1.0, 0.5, 1.0);
+  const vec4 EMBER = vec4(0.6, 0.15, 0.0, 1.0); //alpha counts down to burning out
   const vec4 PLANT = vec4(0.0, 1.0, 0.0, 1.0);
   const vec4 STONE = vec4(0.35, 0.35, 0.35, 1.0);
+  const vec4 SALT = vec4(0.9, 0.9, 0.85, 1.0);
+  const vec4 SALTWATER = vec4(0.25, 0.5, 1.0, 1.0);
 
-  bool isLiquid(vec4 c){ return isBlack(c) || isWater(c) || isOil(c) || isLava(c); }
-  bool isMovable(vec4 c){ return isLiquid(c) || isSand(c); }
-  bool isHot(vec4 c){ return isFire(c) || isLava(c); }
-  bool isFlammable(vec4 c){ return isBlack(c) || isOil(c) || isPlant(c); }
+  bool isLiquid(vec4 c){ return isWater(c) || isSaltWater(c) || isOil(c) || isLava(c) || isAcid(c); }
+  bool isGas(vec4 c){ return isMethane(c); }
+  bool isFluid(vec4 c){ return isLiquid(c) || isGas(c); }
+  bool isPowder(vec4 c){ return isSand(c) || isGunpowder(c) || isSalt(c); }
+  bool isMovable(vec4 c){ return isFluid(c) || isPowder(c); }
+  bool isHot(vec4 c){ return isFire(c) || isLava(c) || isBlast(c) || isEmber(c); }
+  bool isExplosive(vec4 c){ return isGunpowder(c) || isMethane(c); }
+  bool isFlammable(vec4 c){ return isOil(c) || isPlant(c); }
+  bool isShatterable(vec4 c){ return isStone(c) || isSand(c) || isSalt(c); }
+  bool isAnyWater(vec4 c){ return isWater(c) || isSaltWater(c); }
+  bool isDissolvable(vec4 c){ return isStone(c) || isSand(c) || isPlant(c) || isWood(c) || isGunpowder(c) || isSalt(c); }
 
   float density(vec4 c){
+    if(isMethane(c)) return 0.0;
     if(isOil(c)) return 1.0;
     if(isWater(c)) return 2.0;
-    if(isBlack(c)) return 3.0;
+    if(isSaltWater(c)) return 2.5;
+    if(isAcid(c)) return 2.7;
     if(isLava(c)) return 4.0;
-    return 5.0; //sand
+    return 5.0; //powders
   }
 
-  //u resting on l sinks through it
+  //u resting on l sinks through it (and l, if lighter, bubbles up through u)
   bool heavier(vec4 u, vec4 l){
-    return isMovable(u) && isLiquid(l) && density(u) > density(l);
+    return isMovable(u) && isFluid(l) && density(u) > density(l);
   }
 
   //movable cells keep a sideways direction in alpha (1 = right, 0 = left) so they flow instead of random walking
@@ -97,25 +128,56 @@
     return lowerOfPair(dy) ? heavier(cAbove, c) : heavier(c, cBelow);
   }
 
-  //sand only moves sideways off an edge it can then fall down, and only from the surface of a pile
-  //(with no sand on top), so piles crumble from the top instead of whole columns sliding over
-  bool sandCanSlide(vec4 c, vec4 cAbove, vec4 targetBelow){
-    return isEmpty(targetBelow) && !isSand(cAbove);
+  //powders only move sideways off an edge they can then fall down, and only from the surface of a pile
+  //(with no powder on top), so piles crumble from the top instead of whole columns sliding over
+  bool powderCanSlide(vec4 c, vec4 cAbove, vec4 targetBelow){
+    return isEmpty(targetBelow) && !isPowder(cAbove);
   }
 
-  //c (dy rows away) is supported and wants to move sideways into the empty cell beside it
+  //c (dy rows away) is supported (from below, or from above for gas) and wants to move sideways
+  //into the empty cell beside it
   bool slides(vec4 c, vec4 cBelow, vec4 cAbove, vec4 targetBelow, float dy){
-    return isMovable(c) && !isEmpty(cBelow) && !swapping(c, cBelow, cAbove, dy) &&
-           (!isSand(c) || sandCanSlide(c, cAbove, targetBelow));
+    return isMovable(c) && !isEmpty(isGas(c) ? cAbove : cBelow) && !swapping(c, cBelow, cAbove, dy) &&
+           (!isPowder(c) || powderCanSlide(c, cAbove, targetBelow));
+  }
+
+  //c (dy rows away) wants to fall into the empty cell below it
+  bool falls(vec4 c, vec4 cAbove, float dy){
+    return isMovable(c) && !isGas(c) && !swapping(c, EMPTY, cAbove, dy);
+  }
+
+  //c (dy rows away) wants to rise into the empty cell above it
+  bool rises(vec4 c, vec4 cBelow, float dy){
+    return isGas(c) && !swapping(c, cBelow, EMPTY, dy);
   }
 
   //What c turns into this step regardless of movement (burning, cooling, growing), given its
   //neighbours above, below, left, right and its random value; c itself if nothing happens.
   //c, the cell c would move into and c's swap partner all evaluate this with the same inputs, so they agree
   vec4 transform(vec4 c, vec4 a, vec4 b, vec4 l, vec4 r, vec4 rnd){
-    if(isFlammable(c) && (isHot(a) || isHot(b) || isHot(l) || isHot(r)))
+    bool hot = isHot(a) || isHot(b) || isHot(l) || isHot(r);
+    bool blast = isBlast(a) || isBlast(b) || isBlast(l) || isBlast(r);
+    if(isExplosive(c) && hot)
+      return BLAST; //gunpowder and methane explode
+    if(isFlammable(c) && hot)
       return FIRE;
-    if(isLava(c) && (isWater(a) || isWater(b) || isWater(l) || isWater(r)))
+    if(isWood(c)){
+      if(blast)
+        return FIRE; //a blast sets wood alight at once
+      if(hot && rnd.r < 0.03)
+        return EMBER; //otherwise it smoulders
+    }
+    if(isBlast(c))
+      return rnd.r < 0.5 ? FIRE : EMPTY; //the flash lasts one step
+    if(isEmber(c)){
+      if(c.a < 0.5 / 255.0)
+        return EMPTY; //burnt out
+      if(rnd.g < 0.1)
+        return vec4(c.rgb, c.a - 1.0 / 255.0); //glows for roughly 2500 steps
+    }
+    if(isShatterable(c) && blast && rnd.g < 0.5)
+      return EMPTY; //blasts blow apart stone, sand and salt
+    if(isLava(c) && (isAnyWater(a) || isAnyWater(b) || isAnyWater(l) || isAnyWater(r)))
       return STONE; //lava hardens where it touches water
     if(isWater(c)){
       if(isLava(a) || isLava(b) || isLava(l) || isLava(r))
@@ -123,6 +185,14 @@
       if((isPlant(a) || isPlant(b) || isPlant(l) || isPlant(r)) && rnd.a < 0.02)
         return PLANT; //plants slowly grow into water
     }
+    if(isSaltWater(c) && (isLava(a) || isLava(b) || isLava(l) || isLava(r)))
+      return SALT; //boiling salt water leaves salt behind
+    if(isSalt(c) && (isWater(a) || isWater(b) || isWater(l) || isWater(r)) && rnd.g < 0.2)
+      return SALTWATER; //salt dissolves into water
+    if(isDissolvable(c) && (isAcid(a) || isAcid(b) || isAcid(l) || isAcid(r)) && rnd.g < 0.1)
+      return EMPTY; //eaten by acid
+    if(isAcid(c) && (isDissolvable(a) || isDissolvable(b) || isDissolvable(l) || isDissolvable(r)) && rnd.b < 0.05)
+      return EMPTY; //acid is used up as it eats
     if(isFire(c) && rnd.r < 0.10)
       return EMPTY; //fire burns out
     return c;
@@ -135,14 +205,28 @@
   //Each empty cell takes at most one movable cell, chosen in priority order:
   //  1. a sideways mover (the cell's random coin picks left or right neighbour when both want it)
   //  2. cell above falling
+  //  3. gas below rising
   //Movers run the same checks on their rivals, so a mover leaves exactly when its target accepts it.
   void main(void)
   {
+    //Early exits that give exactly what the full rules below would, so most of a typical scene
+    //(empty air and walls) skips the other reads:
+    //walls never move or change (nothing burns, melts or dissolves them)...
     vec4 current = at(0.0, 0.0);
+    if(isWall(current)){
+        fragColor = current;
+        return;
+    }
+    //...and an empty cell can only be filled from the left, right, above, or by gas from below
     vec4 above = at(0.0, 1.0);
     vec4 below = at(0.0, -1.0);
     vec4 left = at(-1.0, 0.0);
     vec4 right = at(1.0, 0.0);
+    if(isEmpty(current) && !isMovable(left) && !isMovable(right) && !isMovable(above) && !isGas(below)){
+        fragColor = current;
+        return;
+    }
+
     vec4 upperLeft = at(-1.0, 1.0);
     vec4 upperRight = at(1.0, 1.0);
     vec4 lowerLeft = at(-1.0, -1.0);
@@ -170,70 +254,86 @@
 
     vec4 transformed = transform(current, above, below, left, right, randNum);
     if(any(notEqual(transformed, current))){
-        gl_FragColor = transformed;
+        fragColor = transformed;
     }
     else if(isEmpty(current)){
         bool fromLeft = movingRight(left) && slides(left, lowerLeft, upperLeft, below, 0.0);
         bool fromRight = !movingRight(right) && slides(right, lowerRight, upperRight, below, 0.0);
-        bool fromAbove = isMovable(above) && !swapping(above, current, twoAbove, 1.0) && randNum.r > 0.2;
+        bool fromAbove = falls(above, twoAbove, 1.0) && randNum.r > 0.2;
+        bool fromBelow = rises(below, twoBelow, -1.0) && randNum.a > 0.2;
 
         //a claimant that is transforming this step still blocks its rivals, but doesn't arrive
         if(fromLeft && (leftWins || !fromRight)){
-            gl_FragColor = changes(left, upperLeft, lowerLeft, twoLeft, current, leftRandNum) ? current : left;
+            fragColor = changes(left, upperLeft, lowerLeft, twoLeft, current, leftRandNum) ? current : left;
         }
         else if(fromRight){
-            gl_FragColor = changes(right, upperRight, lowerRight, current, twoRight, rightRandNum) ? current : right;
+            fragColor = changes(right, upperRight, lowerRight, current, twoRight, rightRandNum) ? current : right;
         }
         else if(fromAbove){
             //landing cells pick a new random direction
-            gl_FragColor = changes(above, twoAbove, current, upperLeft, upperRight, aboveRandNum) ? current : vec4(above.rgb, randNum.g > 0.5 ? 1.0 : 0.0);
+            fragColor = changes(above, twoAbove, current, upperLeft, upperRight, aboveRandNum) ? current : vec4(above.rgb, randNum.g > 0.5 ? 1.0 : 0.0);
+        }
+        else if(fromBelow){
+            fragColor = changes(below, current, twoBelow, lowerLeft, lowerRight, belowRandNum) ? current : vec4(below.rgb, randNum.g > 0.5 ? 1.0 : 0.0);
         }
         else{
-            gl_FragColor = current;
+            fragColor = current;
         }
     }
     else if(isMovable(current)){
 //begin density swap
         if(lowerOfPair(0.0) && heavier(above, current)){
-            gl_FragColor = changes(above, twoAbove, current, upperLeft, upperRight, aboveRandNum) ? current : above;
+            fragColor = changes(above, twoAbove, current, upperLeft, upperRight, aboveRandNum) ? current : above;
         }
         else if(!lowerOfPair(0.0) && heavier(current, below)){
-            gl_FragColor = changes(below, current, twoBelow, lowerLeft, lowerRight, belowRandNum) ? current : below;
+            fragColor = changes(below, current, twoBelow, lowerLeft, lowerRight, belowRandNum) ? current : below;
         }
 //end density swap
+//begin rise
+        else if(isGas(current) && isEmpty(above)){
+            //everything else moving into the cell above has priority over rising
+            vec4 twoAboveLeft = at(-1.0, 2.0);
+            vec4 twoAboveRight = at(1.0, 2.0);
+            vec4 threeAbove = at(0.0, 3.0);
+            bool aboveFromLeft = movingRight(upperLeft) && slides(upperLeft, left, twoAboveLeft, current, 1.0);
+            bool aboveFromRight = !movingRight(upperRight) && slides(upperRight, right, twoAboveRight, current, 1.0);
+            bool aboveFromAbove = falls(twoAbove, threeAbove, 2.0) && aboveRandNum.r > 0.2;
+            fragColor = (aboveRandNum.a > 0.2 && !aboveFromLeft && !aboveFromRight && !aboveFromAbove) ? EMPTY : current;
+        }
+//end rise
 //begin fall
-        else if(isEmpty(below)){
+        else if(!isGas(current) && isEmpty(below)){
             //sideways movers into the cell below have priority over falling
             bool belowFromLeft = movingRight(lowerLeft) && slides(lowerLeft, twoBelowLeft, left, twoBelow, -1.0);
             bool belowFromRight = !movingRight(lowerRight) && slides(lowerRight, twoBelowRight, right, twoBelow, -1.0);
-            gl_FragColor = (belowRandNum.r > 0.2 && !belowFromLeft && !belowFromRight) ? EMPTY : current;
+            fragColor = (belowRandNum.r > 0.2 && !belowFromLeft && !belowFromRight) ? EMPTY : current;
         }
 //end fall
 //begin sideways
         else if(movingRight(current)){
-            if(isEmpty(right) && (!isSand(current) || sandCanSlide(current, above, lowerRight))){
+            if(isEmpty(right) && (!isPowder(current) || powderCanSlide(current, above, lowerRight))){
                 //may lose to a cell two to the right moving left into the same cell
                 bool rightTakenFromRight = !movingRight(twoRight) && slides(twoRight, twoRightBelow, twoRightAbove, lowerRight, 0.0);
-                gl_FragColor = (rightTargetLeftWins || !rightTakenFromRight) ? EMPTY : current;
+                fragColor = (rightTargetLeftWins || !rightTakenFromRight) ? EMPTY : current;
             }
             else{
-                gl_FragColor = vec4(current.rgb, 0.0); //blocked: turn around
+                fragColor = vec4(current.rgb, 0.0); //blocked: turn around
             }
         }
         else{
-            if(isEmpty(left) && (!isSand(current) || sandCanSlide(current, above, lowerLeft))){
+            if(isEmpty(left) && (!isPowder(current) || powderCanSlide(current, above, lowerLeft))){
                 //may lose to a cell two to the left moving right into the same cell
                 bool leftTakenFromLeft = movingRight(twoLeft) && slides(twoLeft, twoLeftBelow, twoLeftAbove, lowerLeft, 0.0);
-                gl_FragColor = (leftTakenFromLeft && leftTargetLeftWins) ? current : EMPTY;
+                fragColor = (leftTakenFromLeft && leftTargetLeftWins) ? current : EMPTY;
             }
             else{
-                gl_FragColor = vec4(current.rgb, 1.0); //blocked: turn around
+                fragColor = vec4(current.rgb, 1.0); //blocked: turn around
             }
         }
 //end sideways
     }
     else{
-        gl_FragColor = current;
+        fragColor = current;
     }
 }
 </script>
@@ -258,6 +358,17 @@
       }
     }
     gl_FragColor = vec4(sum / (n.x * n.y), 1.0); //alpha holds liquid direction, not opacity
+  }
+</script>
+
+<script id="shader-vs-300" type="x-shader/x-vertex">#version 300 es
+  in vec3 aVertexPosition;
+  in vec2 aTextureCoord;
+  out vec2 vTextureCoord;
+  void main(void)
+  {
+    gl_Position = vec4(aVertexPosition, 1.0);
+    vTextureCoord = aTextureCoord;
   }
 </script>
 
@@ -294,18 +405,14 @@
   {
     var canvas = document.getElementById("canvas");
 
-    // WebGL2 can REPEAT-wrap the canvas-sized (non-power-of-two) random texture
-    gl = canvas.getContext("webgl2");
+    // the canvas only shows a copy of the sim texture: no antialiasing, depth, stencil or transparency needed
+    var contextAttributes = {antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "high-performance"};
+    gl = canvas.getContext("webgl2", contextAttributes);
     isWebGL2 = !!gl;
     if (!gl)
-      gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-    if (!gl)
     {
-
-
-      $("body").html("\
-            <span>WebGL is required but is not available in this browser.</span>");
-      throw "no WebGL";
+      $("body").html("<span>WebGL2 is required but is not available in this browser.</span>");
+      throw "no WebGL2";
     }
 
     // This temporary code provides support for Google Chrome, which
@@ -377,7 +484,7 @@
   function initShaders()
   {
     var fragmentShader = getShader(gl, "shader-fs");
-    var vertexShader = getShader(gl, "shader-vs");
+    var vertexShader = getShader(gl, "shader-vs-300");
 
     shaderProgram = gl.createProgram();
     gl.attachShader(shaderProgram, vertexShader);
@@ -416,9 +523,9 @@
       throw "Could not link simple shaders: " + gl.getProgramInfoLog(simpleShaderProgram);
     }
 
-    // copies the sim texture to the screen; shares shader-vs, so pin its attributes to the same slots
+    // copies the sim texture to the screen; same attributes as the sim program, so pin them to the same slots
     copyShaderProgram = gl.createProgram();
-    gl.attachShader(copyShaderProgram, vertexShader);
+    gl.attachShader(copyShaderProgram, getShader(gl, "shader-vs"));
     gl.attachShader(copyShaderProgram, getShader(gl, "copy-fs"));
     gl.bindAttribLocation(copyShaderProgram, vertexPositionAttribute, "aVertexPosition");
     gl.bindAttribLocation(copyShaderProgram, textureCoordAttribute, "aTextureCoord");
@@ -742,11 +849,11 @@
         setColorUniforms([0.5, 0.25, 0.25, 1.0]);
         gl.drawElements(gl.TRIANGLE_STRIP, penPolygonIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
 
-        //black sprinkler
+        //water sprinkler
         matrix = mvTranslate([ -20.0 , 30.0, 1.0], identity);
         matrix[15] = 30.0;
         setMatrixUniforms(matrix);
-        setColorUniforms([0.0, 0.0, 0.0, 1.0]);
+        setColorUniforms([0.0, 0.0, 1.0, 1.0]);
         gl.drawElements(gl.TRIANGLE_STRIP, penPolygonIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
     }
     gl.useProgram(shaderProgram);
@@ -963,12 +1070,16 @@
   var materials = [
     {name: "Water",  key: "1", color: [0.0, 0.0, 1.0],    tip: "flows; oil floats on it"},
     {name: "Oil",    key: "2", color: [0.5, 0.25, 0.25],  tip: "light, flammable liquid"},
-    {name: "Black",  key: "3", color: [0.0, 0.0, 0.0],    tip: "heavy, flammable liquid"},
-    {name: "Lava",   key: "4", color: [1.0, 0.5, 0.0],    tip: "sets things alight; hardens to stone in water"},
-    {name: "Sand",   key: "5", color: [0.86, 0.75, 0.45], tip: "piles up and sinks through liquids"},
-    {name: "Plant",  key: "6", color: [0.0, 1.0, 0.0],    tip: "slowly grows into water; burns"},
-    {name: "Fire",   key: "7", color: [1.0, 0.0, 0.0],    tip: "burns oil, black liquid and plants"},
-    {name: "Wall",   key: "8", color: [0.55, 0.55, 0.55], tip: "solid"},
+    {name: "Lava",   key: "3", color: [1.0, 0.5, 0.0],    tip: "sets things alight; hardens to stone in water"},
+    {name: "Sand",   key: "4", color: [0.86, 0.75, 0.45], tip: "piles up and sinks through liquids"},
+    {name: "Plant",  key: "5", color: [0.0, 1.0, 0.0],    tip: "slowly grows into water; burns"},
+    {name: "Fire",   key: "6", color: [1.0, 0.0, 0.0],    tip: "burns oil and plants, explodes gunpowder and methane, makes wood smoulder"},
+    {name: "Wall",   key: "7", color: [0.55, 0.55, 0.55], tip: "indestructible solid"},
+    {name: "Wood",   key: "W", color: [0.55, 0.35, 0.15], tip: "smoulders into embers near fire; blasts set it alight"},
+    {name: "Gunpowder", key: "G", color: [0.25, 0.25, 0.3], tip: "explodes, shattering nearby stone, sand and salt"},
+    {name: "Methane", key: "M", color: [0.8, 0.7, 0.9],   tip: "rising, explosive gas"},
+    {name: "Acid",   key: "A", color: [0.6, 1.0, 0.0],    tip: "eats stone, sand, plants, wood, salt and gunpowder (not walls)"},
+    {name: "Salt",   key: "S", color: [0.9, 0.9, 0.85],   tip: "dissolves into salt water, which sinks under fresh water"},
     {name: "Eraser", key: "0", color: [1.0, 1.0, 1.0],    tip: "clears cells"}
   ];
   var paused = false;
@@ -1004,7 +1115,7 @@
       if (e.target.tagName == "INPUT") return;
       if (e.keyCode == 32) { setPaused(!paused); return false; }
       var key = String.fromCharCode(e.keyCode);
-      $.each(materials, function(i, m){ if (m.key == key) selectMaterial(i); });
+      $.each(materials, function(i, m){ if (m.key.toUpperCase() == key) selectMaterial(i); });
     });
 
     var width = parseInt(gup('width'));
